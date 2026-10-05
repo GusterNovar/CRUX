@@ -1,0 +1,35 @@
+# Python environments and generated files
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Test, tool and build artifacts
+.cache/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+build/
+dist/
+
+# Local inputs; the public demo archive is the only ZIP exception
+*.zip
+!/codes.zip
+passwords*.txt
+wordlist*.txt
+
+# Generated hashcat output and extracted archives
+*.hash
+*.found
+*.potfile
+*.restore
+*.log
+*_extracted*/
+.*.partial/
+
+# The development checkout's nested release copy
+/sync/
