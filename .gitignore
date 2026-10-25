@@ -33,3 +33,7 @@ wordlist*.txt
 
 # The development checkout's nested release copy
 /sync/
+
+# Local hashcat runtime and temporary filtered dictionaries
+.tools/
+.crux-wordlist-*/

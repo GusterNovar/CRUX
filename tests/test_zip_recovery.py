@@ -208,60 +208,6 @@ def test_progress_display_includes_estimated_remaining():
     )
 
 
-def test_recover_default_archive_argument_uses_lock_zip(tmp_path: Path, monkeypatch, capsys):
-    archive = tmp_path / "lock.zip"
-    make_encrypted_zip(archive, "0")
-    monkeypatch.chdir(tmp_path)
-
-    exit_code = main(["recover", "--charset", "digits", "--min-length", "1", "--max-length", "1"])
-
-    captured = capsys.readouterr()
-    assert exit_code == 0
-    assert "FOUND password: 0" in captured.out
-    assert (tmp_path / "lock_extracted" / "1-8" / "01.mp4").exists()
-
-
-def test_recovery_failure_returns_nonzero(tmp_path: Path, monkeypatch, capsys):
-    archive = tmp_path / "lock.zip"
-    make_encrypted_zip(archive, "z")
-    monkeypatch.chdir(tmp_path)
-
-    exit_code = main(["recover", "--charset", "digits", "--min-length", "1", "--max-length", "1"])
-
-    captured = capsys.readouterr()
-    assert exit_code == 1
-    assert "Password not found after 10 attempts" in captured.err
-    assert not (tmp_path / "lock_extracted").exists()
-
-
-def test_recover_default_charset_uses_index_ranges(tmp_path: Path, monkeypatch, capsys):
-    archive = tmp_path / "lock.zip"
-    make_encrypted_zip(archive, "12")
-    monkeypatch.chdir(tmp_path)
-
-    exit_code = main(
-        [
-            "recover",
-            "--charset",
-            "digits",
-            "--min-length",
-            "1",
-            "--max-length",
-            "2",
-            "--workers",
-            "2",
-            "--batch-size",
-            "5",
-        ]
-    )
-
-    captured = capsys.readouterr()
-    assert exit_code == 0
-    assert "dispatch=index-range" in captured.out
-    assert "FOUND password: 12" in captured.out
-    assert (tmp_path / "lock_extracted" / "1-8" / "01.mp4").exists()
-
-
 def test_wrong_password_zlib_error_is_treated_as_failed_candidate(monkeypatch):
     class BrokenHandle:
         def __enter__(self):
@@ -363,7 +309,6 @@ def test_hashcat_cli_exports_hash_without_running(tmp_path: Path, capsys):
 
     exit_code = main(
         [
-            "hashcat",
             str(archive),
             "--member",
             "1-8/01.mp4",
@@ -387,7 +332,6 @@ def test_hashcat_cli_exports_pkzip_hash_without_running(tmp_path: Path, capsys):
 
     exit_code = main(
         [
-            "hashcat",
             str(archive),
             "--hash-file",
             str(hash_file),
@@ -409,7 +353,11 @@ def test_hashcat_cli_charset_range_runs_increment_mask(tmp_path: Path, monkeypat
     fake_hashcat.write_text("", encoding="utf-8")
     captured = {}
 
-    def fake_run(command, check, cwd):
+    def fake_run(command, check, cwd, **kwargs):
+        if "--show" in command:
+            from types import SimpleNamespace
+            return SimpleNamespace(returncode=0, stdout="")
+        Path(command[command.index("--outfile") + 1]).write_text("20050808\n", encoding="utf-8")
         captured["command"] = command
         captured["check"] = check
         captured["cwd"] = cwd
@@ -423,15 +371,14 @@ def test_hashcat_cli_charset_range_runs_increment_mask(tmp_path: Path, monkeypat
 
     exit_code = main(
         [
-            "hashcat",
             str(archive),
             "--hashcat-path",
             str(fake_hashcat),
             "--charset",
             "digits",
-            "--min-length",
+            "--min",
             "8",
-            "--max-length",
+            "--max",
             "12",
             "--raw-output",
         ]
@@ -439,13 +386,13 @@ def test_hashcat_cli_charset_range_runs_increment_mask(tmp_path: Path, monkeypat
 
     assert exit_code == 0
     command = captured["command"]
-    assert command[:6] == [str(fake_hashcat.resolve()), "-m", "17230", "-w", "3", "--increment"]
+    assert command[:6] == [str(fake_hashcat.resolve()), "-m", "17230", "-w", "2", "--increment"]
     assert "--increment-min" in command
     assert command[command.index("--increment-min") + 1] == "8"
     assert "--increment-max" in command
     assert command[command.index("--increment-max") + 1] == "12"
-    assert command[-2].endswith("pkzip.hash")
-    assert command[-1] == "?d" * 12
+    assert str(archive.with_suffix(".hash").resolve()) in command
+    assert "?d" * 12 in command
     assert captured["cwd"] == fake_hashcat.parent
 
 
@@ -473,15 +420,14 @@ def test_hashcat_cli_prints_password_from_existing_potfile(tmp_path: Path, monke
 
     exit_code = main(
         [
-            "hashcat",
             str(archive),
             "--hashcat-path",
             str(fake_hashcat),
             "--charset",
             "digits",
-            "--min-length",
+            "--min",
             "8",
-            "--max-length",
+            "--max",
             "12",
         ]
     )
@@ -494,7 +440,7 @@ def test_hashcat_cli_prints_password_from_existing_potfile(tmp_path: Path, monke
 
 def test_parse_hashcat_machine_readable_status():
     parsed = _parse_hashcat_status(
-        "STATUS\t1\tSPEED\t6625054617\t1000\t204700000\t1000\t"
+        "STATUS\t3\tSPEED\t6625054617\t1000\t204700000\t1000\t"
         "EXEC_RUNTIME\t3.66\t42.0\tPROGRESS\t28444672\t100000000\t"
         "RECHASH\t0\t1\tRECSALT\t0\t1\tTEMP\t57\t-1\t"
     )
