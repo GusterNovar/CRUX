@@ -74,9 +74,9 @@ def test_filtered_wordlist_includes_both_bounds_preserves_spaces_and_cleans_up(
     tmp_path,
 ):
     source = tmp_path / "words.txt"
-    source.write_bytes("\ufeff1\r\n12\r\n  \r\n密码\r\n123\r\n1234\r\n".encode("utf-8"))
+    source.write_bytes("\ufeff1\r\n12\r\n  \r\n\u2603\u2602\r\n123\r\n1234\r\n".encode("utf-8"))
     with _filtered_wordlist(source, 2, 3, directory=tmp_path) as filtered:
-        assert filtered.read_text(encoding="utf-8") == "12\n  \n密码\n123\n"
+        assert filtered.read_text(encoding="utf-8") == "12\n  \n\u2603\u2602\n123\n"
     assert not filtered.exists()
     assert not list(tmp_path.glob(".crux-wordlist-*"))
     assert source.read_text(encoding="utf-8").startswith("\ufeff1\n12\n")
@@ -213,14 +213,25 @@ def test_hashcat_is_found_on_path(hashcat, monkeypatch):
     assert _resolve_hashcat_executable() == str(hashcat.resolve())
 
 
-def test_hashcat_is_found_in_local_directory(hashcat, monkeypatch):
+@pytest.mark.parametrize("location", ["hashcat", ".tools/hashcat", ".tools", ".tools/hashcat-test"])
+@pytest.mark.parametrize("base", ["working", "project"])
+def test_hashcat_is_found_in_portable_directories(tmp_path, monkeypatch, location, base):
+    working = tmp_path / "working"
+    project = tmp_path / "project"
+    working.mkdir()
+    project.mkdir()
+    directory = (working if base == "working" else project) / location
+    directory.mkdir(parents=True, exist_ok=True)
+    executable = directory / ("hashcat.exe" if os.name == "nt" else "hashcat")
+    executable.touch()
+    executable.chmod(0o755)
+    monkeypatch.chdir(working)
     monkeypatch.delenv("HASHCAT", raising=False)
     monkeypatch.setattr("crux.cli.shutil.which", lambda _: None)
-    monkeypatch.setattr("crux.cli.LOCAL_HASHCAT_DIR", hashcat.parent)
     monkeypatch.setattr(
-        "crux.cli.__file__", str(hashcat.parent / "src" / "crux" / "cli.py")
+        "crux.cli.__file__", str(project / "src" / "crux" / "cli.py")
     )
-    assert _resolve_hashcat_executable() == str(hashcat.resolve())
+    assert _resolve_hashcat_executable() == str(executable.resolve())
 
 
 @pytest.mark.parametrize(
@@ -243,9 +254,9 @@ def test_status_matches_hashcat_codes(code, expected):
 
 
 def test_passwords_preserve_spaces_and_decode_autohex():
-    assert _password_lines("  secret  \r\n$HEX[e5af86e7a081]\n\n") == [
+    assert _password_lines("  secret  \r\n$HEX[e29883e29882]\n\n") == [
         "  secret  ",
-        "密码",
+        "\u2603\u2602",
     ]
     assert _password_lines("$HEX[6162]\n", autohex=False) == ["$HEX[6162]"]
 

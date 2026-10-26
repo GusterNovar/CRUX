@@ -357,7 +357,7 @@ def test_hashcat_cli_charset_range_runs_increment_mask(tmp_path: Path, monkeypat
         if "--show" in command:
             from types import SimpleNamespace
             return SimpleNamespace(returncode=0, stdout="")
-        Path(command[command.index("--outfile") + 1]).write_text("20050808\n", encoding="utf-8")
+        Path(command[command.index("--outfile") + 1]).write_text("12345678\n", encoding="utf-8")
         captured["command"] = command
         captured["check"] = check
         captured["cwd"] = cwd
@@ -408,7 +408,7 @@ def test_hashcat_cli_prints_password_from_existing_potfile(tmp_path: Path, monke
 
         class Result:
             returncode = 0
-            stdout = "20050808\n"
+            stdout = "12345678\n"
 
         return Result()
 
@@ -435,7 +435,7 @@ def test_hashcat_cli_prints_password_from_existing_potfile(tmp_path: Path, monke
     captured = capsys.readouterr()
     assert exit_code == 0
     assert "Status: already cracked (potfile)" in captured.out
-    assert "FOUND password: 20050808" in captured.out
+    assert "FOUND password: 12345678" in captured.out
 
 
 def test_parse_hashcat_machine_readable_status():

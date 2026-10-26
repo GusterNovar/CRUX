@@ -127,7 +127,7 @@ def _default_hash_file(archive: Path) -> Path:
     return archive.with_suffix(".hash")
 
 
-LOCAL_HASHCAT_DIR = Path(r"F:\ATLAS\CRATE\Password\hashcat")
+HASHCAT_FORK_URL = "https://github.com/GusterNovar/hashcat/tree/feature/pkzip-streaming"
 
 
 def _hashcat_in_directory(directory: Path) -> Path | None:
@@ -162,19 +162,12 @@ def _resolve_hashcat_executable(command: str | None = None) -> str:
             return str(Path(resolved).resolve())
 
     project = Path(__file__).resolve().parents[2]
-    directories = [
-        Path.cwd() / "hashcat",
-        project / "hashcat",
-        project / ".tools",
-        LOCAL_HASHCAT_DIR,
-    ]
-    for root in (
-        project / ".tools",
-        LOCAL_HASHCAT_DIR,
-        LOCAL_HASHCAT_DIR / "cache" / "crux",
-    ):
-        if root.is_dir():
-            directories.extend(sorted(root.glob("hashcat-*"), reverse=True))
+    directories = []
+    for root in (Path.cwd(), project):
+        tools = root / ".tools"
+        directories.extend((root / "hashcat", tools / "hashcat", tools))
+        if tools.is_dir():
+            directories.extend(sorted(tools.glob("hashcat-*"), reverse=True))
     for directory in directories:
         executable = _hashcat_in_directory(directory)
         if executable is not None:
@@ -562,7 +555,7 @@ def run_hashcat(args: argparse.Namespace) -> int:
         if not plugin.is_file():
             raise CruxError(
                 "This ZIP requires the hashcat PKZIP streaming extension (mode 17240). "
-                "Build the modified hashcat and select it with --hashcat PATH."
+                f"Build {HASHCAT_FORK_URL} and select it with --hashcat PATH."
             )
     hash_file.parent.mkdir(parents=True, exist_ok=True)
     hash_file.write_text(hash_record.hash_line + "\n", encoding="utf-8")

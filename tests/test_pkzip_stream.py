@@ -55,4 +55,7 @@ def test_unmodified_hashcat_reports_required_extension(tmp_path, capsys):
     executable.touch()
     executable.chmod(0o755)
     assert main([str(path), "--hashcat", str(executable)]) == 1
-    assert "streaming extension (mode 17240)" in capsys.readouterr().err
+    error = capsys.readouterr().err
+    assert "streaming extension (mode 17240)" in error
+    assert "https://github.com/GusterNovar/hashcat/tree/feature/pkzip-streaming" in error
+    assert not path.with_suffix(".hash").exists()

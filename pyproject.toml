@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "crux"
-version = "0.3.0"
+version = "1.0.0"
 description = "Local ZIP password recovery CLI powered by hashcat"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -26,3 +26,18 @@ pythonpath = ["src"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/crux"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "/src/crux/**/*.py",
+  "/tests/**/*.py",
+  "/README.md",
+  "/CHANGELOG.md",
+  "/LICENSE",
+  "/pyproject.toml",
+  "/uv.lock",
+  "/.python-version",
+  "/.gitignore",
+  "/.gitattributes",
+  "/codes.zip",
+]

@@ -1,139 +1,204 @@
 # CRUX
 
-CRUX `0.3.0` 是一个使用 **hashcat** 在本地恢复 ZIP 密码的命令行工具，支持传统 PKZIP 和 WinZip AES。命令直接接收 ZIP 路径，只有普通字符集搜索和字典搜索两种模式。
+CRUX `1.0.0` is a command line tool for recovering ZIP passwords locally with
+**hashcat**. It supports traditional PKZIP and WinZip AES archives, with two attack
+types: a character set search and a wordlist search.
 
-## 安装与使用
+## Installation
 
-需要 [uv](https://docs.astral.sh/uv/getting-started/installation/)、Python 3.11 或更新版本，以及完整的 [hashcat 发行包](https://hashcat.net/hashcat/)和对应设备运行环境。
-
-在包含 `pyproject.toml` 的项目目录执行：
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/), Python 3.11 or
+newer, and a complete hashcat build with the drivers or runtimes required by your
+device. From the CRUX project directory, run:
 
 ```text
-uv sync
+uv sync --locked
 uv run crux --version
 uv run crux --help
 ```
 
-普通模式：按照字符集和长度范围搜索。
+CRUX uses the [hashcat fork's `feature/pkzip-streaming` branch](https://github.com/GusterNovar/hashcat/tree/feature/pkzip-streaming)
+for large traditional PKZIP members. The fork's default `master` branch does not
+contain that extension. The fork currently provides source code rather than a
+binary release; cloning it alone does not install a working executable.
+
+To place the fork in a directory CRUX can discover automatically:
+
+```text
+git clone --branch feature/pkzip-streaming --single-branch https://github.com/GusterNovar/hashcat.git .tools/hashcat
+```
+
+Build it using the fork's [build instructions](https://github.com/GusterNovar/hashcat/blob/feature/pkzip-streaming/BUILD.md)
+or [Windows MSYS2 instructions](https://github.com/GusterNovar/hashcat/blob/feature/pkzip-streaming/BUILD_MSYS2.md).
+On a configured Unix build environment, run `make -C .tools/hashcat`. Keep the
+executable, shared libraries, `modules`, `OpenCL`, and other runtime resources
+together. Mode `17240` also needs a working zlib runtime. The verified source
+reference for this integration is commit `9bb795a376c9857294cfc93d1d8874945e32644a`.
+
+An [upstream hashcat release](https://hashcat.net/hashcat/) can run the standard ZIP
+modes. Upstream `7.1.2` does not include the streaming extension. CRUX reports a
+missing extension before starting a search that requires it. `uv sync` installs
+Python dependencies; build hashcat and install device drivers separately.
+
+## Usage
+
+Search a character set within an inclusive length range:
 
 ```text
 uv run crux path/to/archive.zip --charset digits --min 8 --max 12
 ```
 
-字典模式：只尝试词典中长度符合条件的密码。
+Search only matching entries in a wordlist:
 
 ```text
 uv run crux path/to/archive.zip --wordlist passwords.txt --min 8 --max 12
 ```
 
-`--min` 和 `--max` 均包含边界。`--charset` 与 `--wordlist` 互斥，字典模式会先按长度过滤词典，然后交给 hashcat 执行；它不会再追加字符集搜索。词典使用 UTF-8，每行一个密码，支持 BOM 和 Windows 换行，保留密码前后的空格。长度按字符计数，空行会被忽略；过滤结果为空时直接报错。过滤过程逐行读写临时文件，运行结束后清理，不修改原词典，也不需要将整个词典读入内存。
+`--charset` and `--wordlist` are mutually exclusive. Without `--wordlist`, the
+defaults are `alnum` and lengths `1-5`. Wordlist mode defaults to a minimum length
+of `1` and has no maximum unless `--max` is supplied.
 
-未提供 `--wordlist` 时默认进入普通模式，字符集为 `alnum`，长度为 `1–5`；字典模式默认最小长度为 `1`，省略 `--max` 时不设长度上限。
+Wordlists use UTF-8, with one password per line. CRUX accepts a BOM and Windows
+line endings, preserves leading and trailing spaces, and counts characters for
+length filtering. Empty lines are skipped. It streams matching entries into a
+temporary file, removes that file after the run, and leaves the source wordlist
+unchanged. An empty filtered wordlist produces an error.
 
-找到密码后输出 `FOUND password: ...`，退出码为 `0`。搜索耗尽和执行失败均返回非零退出码，并区分显示 `exhausted` 和 `failed`。
+A successful search prints `FOUND password: ...` and exits with code `0`. An
+exhausted search or backend failure returns a nonzero code and displays the
+corresponding status.
 
-## 自动查找与自定义 hashcat
+## Selecting hashcat
 
-通常无需指定 hashcat 路径。查找顺序为：
+CRUX resolves hashcat in this order:
 
-1. `--hashcat PATH`，也接受原来的 `--hashcat-path PATH`。
-2. 环境变量 `HASHCAT`。
-3. 系统 `PATH` 中的 hashcat。
-4. 当前工作目录的 `hashcat`、项目内的 `hashcat`、`.tools` 及 `.tools/hashcat-*` 发行包目录。
-5. 本机的 `F:\ATLAS\CRATE\Password\hashcat`、其下的 `hashcat-*`，以及 `cache/crux/hashcat-*`。
+1. `--hashcat PATH`, also accepted as `--hashcat-path PATH`.
+2. The `HASHCAT` environment variable.
+3. An executable on `PATH`.
+4. `hashcat`, `.tools/hashcat`, `.tools`, and `.tools/hashcat-*` directories under
+   the current working directory, followed by the same locations under the
+   project directory.
 
-显式指定的路径或环境变量配置无效时会报错，以便及时发现配置问题。参数支持实际可执行文件、可执行命令名，或直接包含可执行文件的目录。Linux/macOS 查找 `hashcat`、`hashcat.bin`，Windows 查找 `hashcat.exe`。其他机器可以通过 `PATH`、环境变量或项目工具目录使用自己的安装位置。
+Explicit configuration accepts an executable path, a command name, or a directory
+that directly contains the executable. Invalid explicit configuration raises an
+error. Windows uses `hashcat.exe`; Linux and macOS use `hashcat` or `hashcat.bin`.
 
-自定义路径：
-
-```text
-uv run crux path/to/archive.zip --charset digits --min 8 --max 12 --hashcat "C:/Tools/hashcat/hashcat.exe"
-```
-
-PowerShell 中也可以设置会话环境变量，让后续命令自动使用它：
-
-```powershell
-$env:HASHCAT = "C:\Tools\hashcat\hashcat.exe"
-uv run crux path/to/archive.zip --wordlist passwords.txt --min 8 --max 12
-```
-
-如果使用普通 PowerShell 变量 `$HASHCAT`，通过参数传入：
-
-```powershell
-$HASHCAT = "C:\Tools\hashcat\hashcat.exe"
-uv run crux path/to/archive.zip --charset digits --min 8 --max 12 --hashcat $HASHCAT
-```
-
-CRUX 从可执行文件所在目录启动 hashcat，并传入绝对路径，以便正确加载 `OpenCL`、`modules` 等资源。请保留完整发行包；单独的源码目录无法执行密码搜索，`uv sync` 也不会安装 hashcat 或显卡驱动。
-
-本机的修改版 hashcat 程序位于：
+Select the fork explicitly on Windows:
 
 ```text
-F:\ATLAS\CRATE\Password\hashcat\hashcat.exe
+uv run crux path/to/archive.zip --charset digits --min 8 --max 12 --hashcat .tools/hashcat/hashcat.exe
 ```
 
-开发目录和 `sync/CRUX` 发布副本均可自动找到它。官方 `7.1.2` 发行包仍保留在同目录的 `cache/crux/hashcat-7.1.2` 中，可通过自定义路径选用；大型单成员 PKZIP 需要修改版中的流式扩展。发布 CRUX 时无需携带此机器上的运行目录。
+Or set a PowerShell session environment variable:
 
-## 字符集
+```powershell
+$env:HASHCAT = (Resolve-Path .tools/hashcat/hashcat.exe).Path
+uv run crux path/to/archive.zip --wordlist passwords.txt
+```
 
-| 名称 | 内容 |
+On Linux or macOS:
+
+```sh
+uv run crux path/to/archive.zip --wordlist passwords.txt --hashcat .tools/hashcat/hashcat
+```
+
+CRUX starts hashcat in the executable's directory and passes absolute input and
+output paths so hashcat can load its runtime resources. When more than one
+hashcat is installed, use `--hashcat` or `HASHCAT` to select the build with the
+streaming extension.
+
+## Character sets
+
+| Name | Contents |
 | --- | --- |
 | `lower` | `a-z` |
 | `upper` | `A-Z` |
 | `digits` | `0-9` |
-| `alpha` | 小写和大写字母 |
-| `alnum` | 小写、大写字母和数字，默认值 |
+| `alpha` | Lowercase and uppercase letters |
+| `alnum` | Lowercase letters, uppercase letters, and digits; the default |
 | `symbols` | `!@#$%^&*()-_=+[]{};:,.<>/` |
-| `all` | `alnum` 加上述符号 |
+| `all` | `alnum` plus the symbols above |
 
-## 诊断与高级选项
+## Advanced options
 
-日常使用只需要档案路径、搜索模式和长度；以下选项用于导出、设备选择或诊断。
-
-| 选项 | 用途 |
+| Option | Purpose |
 | --- | --- |
-| `--no-run` | 只导出哈希，不启动 hashcat，也不要求已安装 hashcat |
-| `--hash-file PATH` | 哈希输出路径；默认 ZIP 旁的 `<档案名>.hash` |
-| `--member NAME` | 指定用于导出的 ZIP 成员 |
-| `-w` / `--workload-profile` | 工作负载 `1–4`，默认 `2`；资源不足时可用 `-w 1` |
-| `--device LIST` | 指定 hashcat 设备，如 `1` 或 `1,2` |
-| `--raw-output` | 显示 hashcat 原始输出 |
-| `--extra-arg ARG` | 附加 hashcat 参数，可重复；以 `-` 开头的值写为 `--extra-arg=值` |
-| `--version` | 显示 CRUX 版本 |
+| `--no-run` | Export a hash without starting or requiring hashcat |
+| `--hash-file PATH` | Hash output path; defaults to `<archive>.hash` next to the ZIP |
+| `--member NAME` | Select a ZIP member for hash export |
+| `-w` / `--workload-profile` | Workload from `1` to `4`; the default is `2` |
+| `--device LIST` | Select hashcat devices, such as `1` or `1,2` |
+| `--raw-output` | Display original hashcat output |
+| `--extra-arg ARG` | Append a hashcat argument; repeat as needed and use `--extra-arg=VALUE` for values beginning with `-` |
+| `--version` | Print the CRUX version |
 
-例如，导出示例档案的哈希：
+## Demo archive
+
+`codes.zip` is a synthetic WinZip AES fixture containing only `demo/README.txt`.
+Its public demonstration password is `crux-demo`.
+
+Export its hash without installing hashcat:
 
 ```text
 uv run crux codes.zip --no-run
 ```
 
-`codes.zip` 的已知密码为 `20050808`。在 UTF-8 词典 `passwords.txt` 中加入这一行，即可用少量候选验证联动：
+For a short recovery check, create a UTF-8 `passwords.txt` containing `crux-demo`
+on its own line, then run:
 
 ```text
-uv run crux codes.zip --wordlist passwords.txt --min 8 --max 8
+uv run crux codes.zip --wordlist passwords.txt
 ```
 
-CRUX 自动选择 WinZip AES `13600`、PKZIP 压缩成员 `17200`、未压缩成员 `17210`、多成员校验模式 `17230`，或扩展的流式模式 `17240`。小型传统 PKZIP 成员继续使用原有模式；单成员数据超过原生模式的 `320 KiB` 缓冲区时，自动改用流式模式，不需要调整命令。未指定成员且只有一到两个传统 PKZIP 成员时，优先选择较小的成员。
+## ZIP modes and output
 
-流式模式需要本项目配套修改版 hashcat，官方 `7.1.2` 发行包没有此扩展。本机编译后的程序是 `F:\ATLAS\CRATE\Password\hashcat\hashcat.exe`，CRUX 会自动优先找到它。如果显式设置了 `HASHCAT` 或 `--hashcat`，请指向这个修改版；使用缺少扩展的版本时，CRUX 会给出明确提示。
+CRUX selects WinZip AES `13600`, compressed PKZIP `17200`, stored PKZIP `17210`,
+multi-member checksum mode `17230`, or the fork's streaming mode `17240`.
+Traditional PKZIP archives with one or two members prefer the smaller supported
+member. Members that exceed the native mode's `320 KiB` data buffer use the
+streaming extension automatically.
 
-流式哈希只保存最多 `256` 字节的加密样本、长度、CRC 和原档案的路径。GPU 筛选候选密码，hashcat 的主机端代码分块解密并校验完整数据，通过 CRC 和解压长度验证后才报告找到密码。原档案需要在搜索期间保持原位且不被修改。工作内存随缓冲区和线程数分配，不再随整个成员大小增长；具体速度仍取决于初筛命中率、CPU 和磁盘性能。该扩展针对传统 PKZIP 的未压缩与 DEFLATE 成员，WinZip AES 仍使用原有模式。
+A streaming hash stores at most `256` encrypted sample bytes, lengths, a CRC, and
+the original archive path. GPU filtering is followed by host-side decryption,
+optional DEFLATE decompression, and full CRC and length verification in chunks.
+The archive must remain available at the same path and must not change during
+the search. Verification buffers do not grow with the full member size; speed
+still depends on candidate filtering, CPU, disk, and device performance.
 
-默认显示紧凑进度，执行失败时保留 hashcat 的诊断信息。默认会复用 hashcat 的 potfile；已有结果时显示 `already cracked (potfile)` 并打印密码。需要重新执行搜索时，追加 `--extra-arg=--potfile-disable`。每次搜索会写入 `.hash`，找到结果时写入 `.hash.found`；hashcat 自己的缓存和 potfile 按其配置保存。
+CRUX displays compact progress by default and retains backend diagnostics on
+failure. It reuses hashcat's potfile; an existing result prints
+`already cracked (potfile)`. To force a fresh search, append
+`--extra-arg=--potfile-disable`. A search writes `.hash` and, when a new result is
+found, `.hash.found`. Hashcat also maintains its own cache and potfile.
 
-## 从 0.2.0 升级
+These generated files are private runtime data. Hashes can include archive paths
+(hex-encoded in streaming mode), results contain recovered passwords, and raw
+backend output may identify devices or drivers. Review them before sharing
+logs or screenshots. CRUX does not upload archive contents or recovered passwords.
 
-`0.3.0` 将 CLI 收敛为 hashcat 后端的两种搜索方式：删除 `recover`、`hashcat` 子命令以及独立的 `--mask` 入口，档案路径改为必填，长度选项改为 `--min`、`--max`。原来 `crux hashcat archive.zip --charset digits --min-length 8 --max-length 12` 对应的新命令是 `crux archive.zip --charset digits --min 8 --max 12`。
+## Upgrading
 
-## 开发与发布
+`1.0.0` keeps the two-mode CLI introduced in `0.3.0`. Configure your hashcat
+installation with `PATH`, `HASHCAT`, `--hashcat`, or one of the portable
+directories above. The demo archive now uses the password `crux-demo`.
 
-源码位于 `src/crux`，测试位于 `tests`，`sync/CRUX` 是可独立使用的发布副本。两处源码、测试、文档和锁文件需要保持一致，虚拟环境和本地工具目录不参与发布。
+For `0.2.0` users, replace
+`crux hashcat archive.zip --charset digits --min-length 8 --max-length 12` with
+`crux archive.zip --charset digits --min 8 --max 12`. The `recover` and `hashcat`
+subcommands and standalone `--mask` option are no longer part of the CLI.
+
+## Development
+
+Source is in `src/crux` and tests are in `tests`. Run:
 
 ```text
 uv sync --locked
 uv run python -m pytest
 ```
 
-单元测试自行生成 ZIP 和词典，并模拟 hashcat 调用，不要求 GPU 或 hashcat。覆盖两种 CLI 搜索、路径自动发现与覆盖、字典长度过滤和清理、状态码、结果读取、失败诊断、哈希导出和 ZIP 处理。真实设备联动测试应另外运行实际恢复命令，检查退出码及输出密码。
+Tests create their own ZIP archives and wordlists and mock hashcat subprocesses;
+they do not require a GPU. Real device recovery should be checked separately.
 
-项目使用 Apache-2.0 许可证，见 [LICENSE](LICENSE)。hashcat 的许可证见其自身发行包。
+## License
+
+CRUX uses the Apache-2.0 license; see [LICENSE](LICENSE). Hashcat has its own
+license in its source tree and distribution.

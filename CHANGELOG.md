@@ -1,13 +1,31 @@
 # Changelog
 
+## 1.0.0
+
+- First stable release.
+- Discover portable hashcat installations in the working directory or project
+  directory, including `.tools/hashcat`.
+- Support the hashcat fork's `feature/pkzip-streaming` branch and show its URL
+  when a search requires mode `17240`.
+- Provide a synthetic WinZip AES demo archive with the public password
+  `crux-demo`.
+
 ## 0.3.0
 
-- 配套 hashcat 新增 PKZIP 流式模式 `17240`，大型单成员档案自动使用小样本和原文件引用，分块完成解密、解压与 CRC 校验。
-- 传统 PKZIP 的一到两个成员优先选择较小成员；选用缺少流式扩展的 hashcat 时明确提示。
-- 命令直接接收 ZIP 路径，统一使用 hashcat，提供普通字符集搜索和字典搜索。
-- 使用 `--min`、`--max` 控制密码长度；字典模式真正按长度过滤候选，并在运行后清理临时词典。
-- 自动发现 hashcat，支持 `HASHCAT` 环境变量及 `--hashcat` / `--hashcat-path` 自定义可执行文件或目录。
-- 对齐 hashcat 状态码，修复搜索耗尽状态，保留执行失败时的诊断信息。
-- 统一紧凑输出与原始输出模式的密码读取，保留密码空格并处理 potfile 自动十六进制编码。
-- 默认 hashcat 工作负载改为 `2`。
-- 删除 CLI 的 `recover`、`hashcat` 子命令和独立 `--mask` 入口，ZIP 路径改为必填。
+- Add support for the companion hashcat PKZIP streaming mode `17240` for large
+  members, using a bounded sample and source archive reference with chunked
+  decryption, decompression, and CRC verification.
+- Prefer the smaller member in traditional PKZIP archives with one or two
+  members and report when the streaming extension is unavailable.
+- Accept the archive path directly and use hashcat for both character set and
+  wordlist searches.
+- Use `--min` and `--max` for inclusive length limits; filter wordlists before
+  running hashcat and remove the temporary filtered file afterward.
+- Discover hashcat automatically and accept `HASHCAT`, `--hashcat`, and
+  `--hashcat-path` overrides for executable paths or directories.
+- Correct status handling for exhausted searches and retain backend errors.
+- Read recovered passwords consistently in compact and raw output modes,
+  preserving spaces and decoding potfile hexadecimal output.
+- Set the default hashcat workload profile to `2`.
+- Remove the `recover` and `hashcat` CLI subcommands and standalone `--mask`
+  option; require a ZIP archive path.

@@ -37,3 +37,30 @@ wordlist*.txt
 # Local hashcat runtime and temporary filtered dictionaries
 .tools/
 .crux-wordlist-*/
+
+# Local hashcat checkouts and runtime data
+/hashcat/
+/kernels/
+*.hccapx
+*.hc22000
+*.dict
+
+# Credentials and machine-specific configuration
+/RELEASING.md
+.env
+.env.*
+!.env.example
+.aws/
+.ssh/
+.codex/
+.agents/
+.idea/
+.vscode/
+*.pem
+*.key
+*.p12
+*.pfx
+*.kdbx
+.DS_Store
+Thumbs.db
+Desktop.ini
