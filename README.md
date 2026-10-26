@@ -200,5 +200,5 @@ they do not require a GPU. Real device recovery should be checked separately.
 
 ## License
 
-CRUX uses the Apache-2.0 license; see [LICENSE](LICENSE). Hashcat has its own
+CRUX uses the MIT license; see [LICENSE](LICENSE). Hashcat has its own
 license in its source tree and distribution.
