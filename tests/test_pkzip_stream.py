@@ -17,19 +17,15 @@ def make_large_stub(path: Path, method=zipfile.ZIP_STORED):
     path.write_bytes(raw)
 
 
-def test_large_member_exports_a_bounded_reference(tmp_path):
+def test_large_member_uses_archive_input(tmp_path):
     path = tmp_path / "large archive.zip"
     make_large_stub(path)
     record = build_hashcat_hash(path)
-    parts = record.hash_line.split("*")
     assert record.mode == HASHCAT_PKZIP_STREAM_MODE
-    assert record.data_bytes == 256
-    assert len(record.hash_line) < 2000
-    assert int(parts[3], 16) > 320 * 1024
-    assert bytes.fromhex(parts[8]).decode("utf-8") == str(path.resolve())
-    with path.open("rb") as source:
-        source.seek(int(parts[2], 16))
-        assert source.read(256) == bytes.fromhex(parts[7])
+    assert record.data_bytes > 320 * 1024
+    assert record.hash_line == ""
+    assert record.member_index == 0
+    assert record.compression_method == zipfile.ZIP_STORED
 
 
 def test_large_deflated_member_uses_streaming_mode(tmp_path):
@@ -37,15 +33,34 @@ def test_large_deflated_member_uses_streaming_mode(tmp_path):
     make_large_stub(path, zipfile.ZIP_DEFLATED)
     record = build_hashcat_hash(path)
     assert record.mode == HASHCAT_PKZIP_STREAM_MODE
-    assert record.hash_line.startswith("$pkzip-stream$*8*")
+    assert record.compression_method == zipfile.ZIP_DEFLATED
 
 
-def test_streaming_export_does_not_require_hashcat(tmp_path, monkeypatch):
+def test_streaming_preview_does_not_require_hashcat(tmp_path, monkeypatch, capsys):
     path = tmp_path / "large.zip"
     make_large_stub(path)
     monkeypatch.setenv("HASHCAT", str(tmp_path / "missing.exe"))
     assert main([str(path), "--no-run"]) == 0
-    assert path.with_suffix(".hash").read_text().startswith("$pkzip-stream$")
+    assert not path.with_suffix(".hash").exists()
+    output = capsys.readouterr().out
+    assert "ZIP input:" in output
+    assert "--pkzip-member-index 0" in output
+    assert "Preview:" in output
+
+
+def test_streaming_rejects_hash_file_export(tmp_path, capsys):
+    path = tmp_path / "large.zip"
+    make_large_stub(path)
+    assert main([str(path), "--no-run", "--hash-file", str(tmp_path / "out.hash")]) == 1
+    assert "--hash-file is not supported" in capsys.readouterr().err
+    assert not (tmp_path / "out.hash").exists()
+
+
+def test_streaming_missing_member_reports_error(tmp_path, capsys):
+    path = tmp_path / "large.zip"
+    make_large_stub(path)
+    assert main([str(path), "--member", "missing", "--no-run"]) == 1
+    assert "member not found" in capsys.readouterr().err
 
 
 def test_unmodified_hashcat_reports_required_extension(tmp_path, capsys):

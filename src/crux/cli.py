@@ -7,6 +7,7 @@ import os
 import shutil
 import subprocess
 import sys
+import zipfile
 from collections import deque
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -97,10 +98,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--member", help="ZIP member to use for hash export")
     parser.add_argument(
-        "--hash-file", help="hash output path; defaults to <archive>.hash"
+        "--hash-file", help="native-mode hash output path; unavailable for mode 17240"
     )
     parser.add_argument(
-        "--no-run", action="store_true", help="export the hash without running hashcat"
+        "--no-run", action="store_true", help="preview input and arguments without running hashcat"
     )
     parser.add_argument(
         "-w",
@@ -503,7 +504,7 @@ def _run_hashcat_compact(
             cwd=cwd,
             potfile_args=potfile_args,
         )
-    if passwords:
+    if passwords and returncode in {0, 1}:
         current, total, speed, _ = last_update or (0, 0, 0, "cracked")
         if last_update is None or last_update[3] != "cracked":
             progress.update(current, total, speed, "cracked")
@@ -549,6 +550,12 @@ def run_hashcat(args: argparse.Namespace) -> int:
         )
     executable = None if args.no_run else _resolve_hashcat_executable(args.hashcat_path)
     hash_record = build_hashcat_hash(archive, args.member)
+    streaming = hash_record.mode == HASHCAT_PKZIP_STREAM_MODE
+    if streaming and args.hash_file:
+        raise CruxError(
+            "--hash-file is not supported for mode 17240: hashcat reads the ZIP directly."
+        )
+    hash_input = archive.resolve() if streaming else hash_file
     if hash_record.mode == HASHCAT_PKZIP_STREAM_MODE and executable is not None:
         suffix = ".dll" if os.name == "nt" else ".so"
         plugin = Path(executable).parent / "modules" / f"module_17240{suffix}"
@@ -558,39 +565,55 @@ def run_hashcat(args: argparse.Namespace) -> int:
                 f"Build {HASHCAT_FORK_URL} and select it with --hashcat PATH."
             )
     hash_file.parent.mkdir(parents=True, exist_ok=True)
-    hash_file.write_text(hash_record.hash_line + "\n", encoding="utf-8")
+    if not streaming:
+        hash_file.write_text(hash_record.hash_line + "\n", encoding="utf-8")
 
     print(f"Hashcat mode: {hash_record.mode} ({hash_record.mode_name})")
-    print(f"Hash file: {hash_file}")
+    print(f"ZIP input: {hash_input}" if streaming else f"Hash file: {hash_file}")
     print(f"Members: {', '.join(hash_record.members)}")
-    if args.no_run:
-        return 0
-
-    assert executable is not None
-    hashcat_cwd = Path(executable).parent
-    print(f"Hashcat: {executable}")
+    hashcat_cwd = Path(executable).parent if executable else Path.cwd()
+    print(f"Hashcat: {executable or 'HASHCAT (automatic discovery)'}")
     command = [
-        executable,
+        executable or "hashcat",
         "-m",
         str(hash_record.mode),
         "-w",
         str(args.workload_profile),
     ]
+    if (
+        hash_record.mode == HASHCAT_PKZIP_STREAM_MODE
+        and hash_record.compression_method == 8
+        and not any(arg.split("=", 1)[0] == "--hook-threads" for arg in args.extra_arg)
+    ):
+        command.extend(["--hook-threads", "1"])
+    if streaming:
+        command.extend(["--pkzip-member-index", str(hash_record.member_index)])
     if args.device:
         command.extend(["-d", args.device])
+    if args.no_run:
+        if wordlist is not None:
+            preview = ["-a", "0", str(hash_input), str(wordlist)]
+            print(f"Wordlist filter: lengths={args.min_length}-{args.max_length or 'unlimited'}")
+        else:
+            attack = _hashcat_charset_attack_args(args.charset, args.min_length, args.max_length)
+            preview = [*attack[:-1], str(hash_input), attack[-1]]
+        print("Preview:", subprocess.list2cmdline([*command, *preview, *args.extra_arg]))
+        return 0
+
+    assert executable is not None
     if wordlist is not None:
         maximum = args.max_length if args.max_length is not None else "unlimited"
         print(f"Attack: wordlist={wordlist}, lengths={args.min_length}-{maximum}")
         with _filtered_wordlist(
             wordlist, args.min_length, args.max_length, directory=hash_file.parent
         ) as filtered:
-            command.extend(["-a", "0", str(hash_file), str(filtered)])
+            command.extend(["-a", "0", str(hash_input), str(filtered)])
             return _invoke_hashcat(
                 args,
                 command,
                 executable,
                 hash_record.mode,
-                hash_file,
+                hash_input,
                 outfile,
                 hashcat_cwd,
             )
@@ -603,9 +626,9 @@ def run_hashcat(args: argparse.Namespace) -> int:
     )
     mask = attack_args.pop()
     command.extend(attack_args)
-    command.extend([str(hash_file), mask])
+    command.extend([str(hash_input), mask])
     return _invoke_hashcat(
-        args, command, executable, hash_record.mode, hash_file, outfile, hashcat_cwd
+        args, command, executable, hash_record.mode, hash_input, outfile, hashcat_cwd
     )
 
 
@@ -619,7 +642,7 @@ def _invoke_hashcat(
     cwd: Path,
 ) -> int:
     command.extend(args.extra_arg)
-    potfile_args = _hashcat_potfile_args(args.extra_arg)
+    potfile_args = None if mode == HASHCAT_PKZIP_STREAM_MODE else _hashcat_potfile_args(args.extra_arg)
     known_passwords = _show_hashcat_passwords(
         executable=executable,
         mode=mode,
@@ -646,6 +669,9 @@ def _invoke_hashcat(
     if args.raw_output:
         print("Running:", subprocess.list2cmdline(command), flush=True)
         result = subprocess.run(command, check=False, cwd=cwd)
+        if result.returncode not in {0, 1}:
+            print(f"Status: failed (hashcat exited with code {result.returncode}).", file=sys.stderr)
+            return result.returncode
         passwords = _read_found_passwords(outfile)
         if not passwords:
             passwords = _show_hashcat_passwords(
@@ -674,7 +700,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         return run_hashcat(args)
-    except (CruxError, OSError, UnicodeError) as exc:
+    except (CruxError, OSError, UnicodeError, zipfile.BadZipFile, zipfile.LargeZipFile) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
     except KeyboardInterrupt:

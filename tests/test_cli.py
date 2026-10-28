@@ -261,7 +261,7 @@ def test_passwords_preserve_spaces_and_decode_autohex():
     assert _password_lines("$HEX[6162]\n", autohex=False) == ["$HEX[6162]"]
 
 
-@pytest.mark.parametrize("returncode", [1, 4294967292])
+@pytest.mark.parametrize("returncode", [1, 4294967292, 4294967284])
 def test_compact_output_reports_exhaustion_and_backend_errors(
     archive, hashcat, monkeypatch, capsys, returncode
 ):
@@ -296,3 +296,49 @@ def test_hash_export_cannot_overwrite_input(archive, capsys):
     assert main([str(archive), "--hash-file", str(archive), "--no-run"]) == 1
     assert archive.read_bytes() == original
     assert "must not overwrite" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("mode", "reference", "extra", "expected"),
+    [
+        (17240, "$pkzip-stream$*8*", [], ["--hook-threads", "1"]),
+        (17240, "$pkzip-stream$*0*", [], []),
+        (13600, "$zip2$*", [], []),
+        (17240, "$pkzip-stream$*8*", ["--hook-threads=2"], ["--hook-threads=2"]),
+        (17240, "$pkzip-stream$*8*", ["--hook-threads", "2"], ["--hook-threads", "2"]),
+    ],
+)
+def test_streaming_hook_threads_preserve_other_modes_and_user_choice(
+    archive, hashcat, monkeypatch, mode, reference, extra, expected
+):
+    modules = hashcat.parent / "modules"
+    modules.mkdir()
+    (modules / ("module_17240.dll" if os.name == "nt" else "module_17240.so")).touch()
+    monkeypatch.setattr(
+        "crux.cli.build_hashcat_hash",
+        lambda *_: SimpleNamespace(
+            mode=mode, mode_name="test", members=("member",), hash_line=reference,
+            compression_method=8 if reference.startswith("$pkzip-stream$*8*") else 0,
+            member_index=0,
+        ),
+    )
+    captured = []
+
+    def run(command, **kwargs):
+        captured.extend(command)
+        return SimpleNamespace(returncode=1)
+
+    monkeypatch.setattr("crux.cli.subprocess.run", run)
+    assert main(
+        [
+            str(archive), "--hashcat", str(hashcat), "--raw-output",
+            "--extra-arg=--potfile-disable", *[f"--extra-arg={arg}" for arg in extra],
+        ]
+    ) == 1
+    actual = []
+    for index, arg in enumerate(captured):
+        if arg == "--hook-threads":
+            actual.extend([arg, captured[index + 1]])
+        elif arg.startswith("--hook-threads="):
+            actual.append(arg)
+    assert actual == expected

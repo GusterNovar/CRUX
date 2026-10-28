@@ -81,6 +81,8 @@ class HashcatArchiveHash:
     members: tuple[str, ...]
     hash_line: str
     data_bytes: int
+    member_index: int | None = None
+    compression_method: int | None = None
 
 
 def choose_probe_member(archive_path: str | Path) -> str:
@@ -234,6 +236,8 @@ def build_hashcat_hash(
 
     try:
         winzip_hash = build_hashcat_winzip_hash(archive, probe_member)
+    except KeyError as exc:
+        raise ArchiveError(f"Archive member not found: {probe_member}") from exc
     except ArchiveError as winzip_error:
         with zipfile.ZipFile(archive) as zf:
             infos = _select_pkzip_infos(zf, probe_member, member is not None)
@@ -281,13 +285,18 @@ def _select_pkzip_infos(
         for info in zf.infolist()
         if not info.is_dir()
         and info.flag_bits & 0x1
+        and not info.flag_bits & 0x2040
+        and info.file_size > 0
         and info.compress_type in {zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED}
     ]
     if member_requested:
         selected = [info for info in infos if info.filename == probe_member]
         if not selected:
+            requested = zf.getinfo(probe_member)
+            if requested.file_size == 0:
+                raise ArchiveError(f"Selected PKZIP member is empty: {probe_member}")
             raise ArchiveError(f"Archive member is not traditional PKZIP encrypted: {probe_member}")
-        return selected + [info for info in infos if info.filename != probe_member]
+        return selected
     return infos
 
 
@@ -339,26 +348,14 @@ def _build_hashcat_pkzip_stream_hash(
 ) -> HashcatArchiveHash:
     if info.compress_size < ZIP_CRYPTO_HEADER_LENGTH:
         raise ArchiveError(f"Truncated PKZIP encryption header: {info.filename}")
-    data = _read_member_payload(zf, info, min(HASHCAT_PKZIP_STREAM_SAMPLE, info.compress_size))
-    offset = _member_data_offset(zf, info)
-    checksum = (
-        _pkzip_checksum_from_timestamp(info) >> 8
-        if info.flag_bits & 0x8
-        else info.CRC >> 24
-    )
-    reference = str(Path(zf.filename).resolve()).encode("utf-8")
-    if len(reference) > 4095:
-        raise ArchiveError("ZIP reference path is too long for the hashcat streaming plugin.")
-    hash_line = (
-        f"$pkzip-stream$*{info.compress_type}*{offset:x}*{info.compress_size:x}*"
-        f"{info.file_size:x}*{info.CRC:08x}*{checksum:02x}*{data.hex()}*{reference.hex()}"
-    )
     return HashcatArchiveHash(
         mode=HASHCAT_PKZIP_STREAM_MODE,
         mode_name="PKZIP streaming",
         members=(info.filename,),
-        hash_line=hash_line,
-        data_bytes=len(data),
+        hash_line="",
+        data_bytes=info.compress_size,
+        member_index=zf.infolist().index(info),
+        compression_method=info.compress_type,
     )
 
 

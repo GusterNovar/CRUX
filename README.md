@@ -31,8 +31,8 @@ Build it using the fork's [build instructions](https://github.com/GusterNovar/ha
 or [Windows MSYS2 instructions](https://github.com/GusterNovar/hashcat/blob/feature/pkzip-streaming/BUILD_MSYS2.md).
 On a configured Unix build environment, run `make -C .tools/hashcat`. Keep the
 executable, shared libraries, `modules`, `OpenCL`, and other runtime resources
-together. Mode `17240` also needs a working zlib runtime. The verified source
-reference for this integration is commit `9bb795a376c9857294cfc93d1d8874945e32644a`.
+together. Mode `17240` needs a working zlib runtime and the revised direct-ZIP
+input implementation with `--pkzip-member-index` support.
 
 An [upstream hashcat release](https://hashcat.net/hashcat/) can run the standard ZIP
 modes. Upstream `7.1.2` does not include the streaming extension. CRUX reports a
@@ -122,9 +122,9 @@ streaming extension.
 
 | Option | Purpose |
 | --- | --- |
-| `--no-run` | Export a hash without starting or requiring hashcat |
-| `--hash-file PATH` | Hash output path; defaults to `<archive>.hash` next to the ZIP |
-| `--member NAME` | Select a ZIP member for hash export |
+| `--no-run` | Preview input and invocation without starting or requiring hashcat; native modes also export a hash |
+| `--hash-file PATH` | Native-mode hash output path; unavailable for `17240` |
+| `--member NAME` | Select a ZIP member; streaming mode passes its central directory index to hashcat |
 | `-w` / `--workload-profile` | Workload from `1` to `4`; the default is `2` |
 | `--device LIST` | Select hashcat devices, such as `1` or `1,2` |
 | `--raw-output` | Display original hashcat output |
@@ -157,21 +157,22 @@ Traditional PKZIP archives with one or two members prefer the smaller supported
 member. Members that exceed the native mode's `320 KiB` data buffer use the
 streaming extension automatically.
 
-A streaming hash stores at most `256` encrypted sample bytes, lengths, a CRC, and
-the original archive path. GPU filtering is followed by host-side decryption,
+Streaming mode passes the ZIP directly to hashcat without exporting a `.hash`
+reference. GPU filtering is followed by host-side decryption,
 optional DEFLATE decompression, and full CRC and length verification in chunks.
 The archive must remain available at the same path and must not change during
 the search. Verification buffers do not grow with the full member size; speed
 still depends on candidate filtering, CPU, disk, and device performance.
 
 CRUX displays compact progress by default and retains backend diagnostics on
-failure. It reuses hashcat's potfile; an existing result prints
+failure. Native modes reuse hashcat's potfile; an existing result prints
 `already cracked (potfile)`. To force a fresh search, append
-`--extra-arg=--potfile-disable`. A search writes `.hash` and, when a new result is
-found, `.hash.found`. Hashcat also maintains its own cache and potfile.
+`--extra-arg=--potfile-disable`. Native searches write `.hash` and, when a new result
+is found, `.hash.found`. Streaming mode disables potfile and `--show` caching and
+writes only `.hash.found` when it recovers a password. Source-file failures are
+reported as failures rather than password exhaustion.
 
-These generated files are private runtime data. Hashes can include archive paths
-(hex-encoded in streaming mode), results contain recovered passwords, and raw
+These generated files are private runtime data. Results contain recovered passwords, and raw
 backend output may identify devices or drivers. Review them before sharing
 logs or screenshots. CRUX does not upload archive contents or recovered passwords.
 
