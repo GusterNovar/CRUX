@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.1.0
+
+- Use official hashcat master for PKZIP streaming mode `17240`, now merged upstream.
+- Replace deleted fork links in installation instructions and missing-module errors
+  with the official repository.
+- Document GusterNovar's merged upstream contributions in hashcat PRs #5017 and #5025.
+- Retain direct ZIP input, explicit member selection, charset and wordlist attacks,
+  and the existing native ZIP modes.
+
 ## 1.0.0
 
 - First stable release.

@@ -128,7 +128,7 @@ def _default_hash_file(archive: Path) -> Path:
     return archive.with_suffix(".hash")
 
 
-HASHCAT_FORK_URL = "https://github.com/GusterNovar/hashcat/tree/feature/pkzip-streaming"
+HASHCAT_UPSTREAM_URL = "https://github.com/hashcat/hashcat"
 
 
 def _hashcat_in_directory(directory: Path) -> Path | None:
@@ -562,7 +562,8 @@ def run_hashcat(args: argparse.Namespace) -> int:
         if not plugin.is_file():
             raise CruxError(
                 "This ZIP requires the hashcat PKZIP streaming extension (mode 17240). "
-                f"Build {HASHCAT_FORK_URL} and select it with --hashcat PATH."
+                f"Build the current master of {HASHCAT_UPSTREAM_URL} "
+                "and select it with --hashcat PATH."
             )
     hash_file.parent.mkdir(parents=True, exist_ok=True)
     if not streaming:

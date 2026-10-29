@@ -63,7 +63,7 @@ def test_streaming_missing_member_reports_error(tmp_path, capsys):
     assert "member not found" in capsys.readouterr().err
 
 
-def test_unmodified_hashcat_reports_required_extension(tmp_path, capsys):
+def test_older_hashcat_reports_required_extension(tmp_path, capsys):
     path = tmp_path / "large.zip"
     make_large_stub(path)
     executable = tmp_path / "hashcat.exe"
@@ -72,5 +72,6 @@ def test_unmodified_hashcat_reports_required_extension(tmp_path, capsys):
     assert main([str(path), "--hashcat", str(executable)]) == 1
     error = capsys.readouterr().err
     assert "streaming extension (mode 17240)" in error
-    assert "https://github.com/GusterNovar/hashcat/tree/feature/pkzip-streaming" in error
+    assert "https://github.com/hashcat/hashcat" in error
+    assert "current master" in error
     assert not path.with_suffix(".hash").exists()

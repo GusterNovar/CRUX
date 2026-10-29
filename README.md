@@ -1,6 +1,6 @@
 # CRUX
 
-CRUX `1.0.0` is a command line tool for recovering ZIP passwords locally with
+CRUX `1.1.0` is a command line tool for recovering ZIP passwords locally with
 **hashcat**. It supports traditional PKZIP and WinZip AES archives, with two attack
 types: a character set search and a wordlist search.
 
@@ -16,28 +16,27 @@ uv run crux --version
 uv run crux --help
 ```
 
-CRUX uses the [hashcat fork's `feature/pkzip-streaming` branch](https://github.com/GusterNovar/hashcat/tree/feature/pkzip-streaming)
-for large traditional PKZIP members. The fork's default `master` branch does not
-contain that extension. The fork currently provides source code rather than a
-binary release; cloning it alone does not install a working executable.
+CRUX uses [official hashcat master](https://github.com/hashcat/hashcat) for large
+traditional PKZIP members. PKZIP streaming mode `17240` and direct ZIP input with
+`--pkzip-member-index` are now included upstream; a separate fork is unnecessary.
 
-To place the fork in a directory CRUX can discover automatically:
+To place the official source in a directory CRUX can discover automatically:
 
 ```text
-git clone --branch feature/pkzip-streaming --single-branch https://github.com/GusterNovar/hashcat.git .tools/hashcat
+git clone --branch master --single-branch https://github.com/hashcat/hashcat.git .tools/hashcat
 ```
 
-Build it using the fork's [build instructions](https://github.com/GusterNovar/hashcat/blob/feature/pkzip-streaming/BUILD.md)
-or [Windows MSYS2 instructions](https://github.com/GusterNovar/hashcat/blob/feature/pkzip-streaming/BUILD_MSYS2.md).
+Build it using the official [build instructions](https://github.com/hashcat/hashcat/blob/master/BUILD.md)
+or [Windows MSYS2 instructions](https://github.com/hashcat/hashcat/blob/master/BUILD_MSYS2.md).
 On a configured Unix build environment, run `make -C .tools/hashcat`. Keep the
 executable, shared libraries, `modules`, `OpenCL`, and other runtime resources
-together. Mode `17240` needs a working zlib runtime and the revised direct-ZIP
-input implementation with `--pkzip-member-index` support.
+together. Mode `17240` needs a working zlib runtime for DEFLATE members.
 
-An [upstream hashcat release](https://hashcat.net/hashcat/) can run the standard ZIP
-modes. Upstream `7.1.2` does not include the streaming extension. CRUX reports a
-missing extension before starting a search that requires it. `uv sync` installs
-Python dependencies; build hashcat and install device drivers separately.
+Older [hashcat releases](https://hashcat.net/hashcat/) can run the standard ZIP
+modes but may lack streaming mode. For large PKZIP members, use an official build
+containing `modules/module_17240` and `--pkzip-member-index` support. CRUX reports
+a missing streaming module before starting the search. `uv sync` installs Python
+dependencies; build hashcat and install device drivers separately.
 
 ## Usage
 
@@ -82,7 +81,7 @@ Explicit configuration accepts an executable path, a command name, or a director
 that directly contains the executable. Invalid explicit configuration raises an
 error. Windows uses `hashcat.exe`; Linux and macOS use `hashcat` or `hashcat.bin`.
 
-Select the fork explicitly on Windows:
+Select the official build explicitly on Windows:
 
 ```text
 uv run crux path/to/archive.zip --charset digits --min 8 --max 12 --hashcat .tools/hashcat/hashcat.exe
@@ -152,7 +151,7 @@ uv run crux codes.zip --wordlist passwords.txt
 ## ZIP modes and output
 
 CRUX selects WinZip AES `13600`, compressed PKZIP `17200`, stored PKZIP `17210`,
-multi-member checksum mode `17230`, or the fork's streaming mode `17240`.
+multi-member checksum mode `17230`, or streaming mode `17240`.
 Traditional PKZIP archives with one or two members prefer the smaller supported
 member. Members that exceed the native mode's `320 KiB` data buffer use the
 streaming extension automatically.
@@ -178,7 +177,7 @@ logs or screenshots. CRUX does not upload archive contents or recovered password
 
 ## Upgrading
 
-`1.0.0` keeps the two-mode CLI introduced in `0.3.0`. Configure your hashcat
+`1.1.0` keeps the two-mode CLI introduced in `0.3.0`. Configure your hashcat
 installation with `PATH`, `HASHCAT`, `--hashcat`, or one of the portable
 directories above. The demo archive now uses the password `crux-demo`.
 
@@ -186,6 +185,23 @@ For `0.2.0` users, replace
 `crux hashcat archive.zip --charset digits --min-length 8 --max-length 12` with
 `crux archive.zip --charset digits --min 8 --max 12`. The `recover` and `hashcat`
 subcommands and standalone `--mask` option are no longer part of the CLI.
+
+## Upstream contributions
+
+CRUX author [GusterNovar](https://github.com/GusterNovar) contributed these changes
+to official hashcat; both pull requests have been merged:
+
+- [#5017: PKZIP streaming verification](https://github.com/hashcat/hashcat/pull/5017)
+  adds mode `17240` for large traditional ZipCrypto stored and DEFLATE members,
+  direct ZIP/ZIP64 input, data descriptor support, and explicit member selection
+  with `--pkzip-member-index`. Host verification uses bounded buffers and checks
+  the complete member length and CRC. This is the upstream feature CRUX uses for
+  large PKZIP members.
+- [#5025: Single-worker HOOK23 scheduling](https://github.com/hashcat/hashcat/pull/5025)
+  runs a single hook worker in the calling thread, avoiding per-batch thread
+  creation and joining. Multiple hook workers retain threaded execution.
+
+CRUX `1.1.0` uses these upstream changes through official hashcat builds.
 
 ## Development
 
